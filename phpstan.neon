@@ -1,0 +1,12 @@
+# PHPStan at the highest level. phpstan-baseline.neon holds what the package had when PHPStan
+# was first run on it (2026-11-10): it may only shrink; new code adds nothing to it.
+includes:
+    - phpstan-baseline.neon
+
+parameters:
+    level: max
+    paths:
+        - .
+    excludePaths:
+        - vendor (?)
+        - docker (?)

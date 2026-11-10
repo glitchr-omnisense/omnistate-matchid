@@ -160,6 +160,14 @@ an unknown identifier; a refused date); the fixtures in `Tests/Fixtures/` are it
 again on 2026-10-25 (the example above). The token (`Authorization: Bearer`) was not tried: no
 account at hand.
 
+## Usage policy
+
+`policy.json` (omnisense/contracts' schema), given by `usagePolicy()`: limits unknown (`rateLimits: null`): the guard counts nothing, a 429 still holds the next calls.
+The figures are this manual's, read on 2026-10-25; the service's terms were not read again when the
+policy was written (`verifiedAt: null`), so what they say of commercial use, caching and storage is
+`unknown`. Through `Omnistate\Omnistate`, a call over a limit is never made and a 429 holds the next
+calls for its `retryAfter` (core: docs/policies.md); a site adds its own limits with `policies:`.
+
 ## Responsibility
 
 An independent, unofficial client, not affiliated with matchID or the INSEE. Whoever runs it

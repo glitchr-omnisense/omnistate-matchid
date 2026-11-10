@@ -2,6 +2,8 @@
 
 namespace Omnistate\MatchId;
 
+use Omnisense\Contracts\Policy\DeclaresUsagePolicyInterface;
+use Omnisense\Contracts\Policy\UsagePolicy;
 use Omnistate\Exception\OmnistateException;
 use Omnistate\Exception\UnavailableException;
 use Omnistate\Http\Redaction;
@@ -29,7 +31,7 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
  * Free, no key. A token (an account at deces.matchid.io) raises the quota;
  * it is sent as "Authorization: Bearer".
  */
-final class MatchId implements CivilRegistryInterface
+final class MatchId implements CivilRegistryInterface, DeclaresUsagePolicyInterface
 {
     public const URL = 'https://deces.matchid.io/deces/api/v1';
     /** A record's page on matchID's own site. */
@@ -41,6 +43,12 @@ final class MatchId implements CivilRegistryInterface
         private readonly float $timeout = 10,
         private readonly string $url = self::URL,
     ) {
+    }
+
+    /** Its usage policy: policy.json, beside this class. */
+    public function usagePolicy(): UsagePolicy
+    {
+        return UsagePolicy::fromFile(__DIR__.'/policy.json');
     }
 
     public function name(): string
@@ -135,7 +143,7 @@ final class MatchId implements CivilRegistryInterface
             if (429 === $status || $status >= 500) {
                 $retry = $response->getHeaders(false)['retry-after'][0] ?? null;
 
-                throw new UnavailableException(sprintf('matchID answered %d.', $status), is_numeric($retry) ? (int) $retry : (429 === $status ? 60 : null));
+                throw new UnavailableException(sprintf('matchID answered %d.', $status), is_numeric($retry) ? (int) $retry : (429 === $status ? 60 : null), null, $status);
             }
             if (401 === $status || 403 === $status) {
                 throw new UnavailableException(sprintf('matchID refused the call (%d): the token is missing or refused.', $status));
