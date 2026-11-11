@@ -66,7 +66,7 @@ final class MatchId implements CivilRegistryInterface, DeclaresUsagePolicyInterf
         return [CivilRecordKind::DEATH];
     }
 
-    public function period(): ?Period
+    public function period(): Period
     {
         return Period::since(1970);
     }
@@ -101,12 +101,12 @@ final class MatchId implements CivilRegistryInterface, DeclaresUsagePolicyInterf
             'page' => $query->page > 1 ? $query->page : null,
         ], static fn (mixed $value) => null !== $value && '' !== $value));
 
-        $persons = $answer['response']['persons'] ?? [];
+        $persons = self::at($answer, 'response', 'persons') ?? [];
         if (!\is_array($persons)) {
             throw self::malformed();
         }
 
-        return array_map(fn (mixed $person) => $this->record(\is_array($person) ? $person : throw self::malformed()), $persons);
+        return array_values(array_map(fn (mixed $person) => $this->record(\is_array($person) ? $person : throw self::malformed()), $persons));
     }
 
     public function find(string $identifier): ?CivilRecord
@@ -114,7 +114,7 @@ final class MatchId implements CivilRegistryInterface, DeclaresUsagePolicyInterf
         if (!preg_match('/^[\w-]{6,40}$/', $identifier)) {
             return null;
         }
-        $person = $this->ask('/id/'.$identifier, [], true)['response']['persons'][0] ?? null;
+        $person = self::at($this->ask('/id/'.$identifier, [], true), 'response', 'persons', 0);
 
         return null === $person ? null : $this->record(\is_array($person) ? $person : throw self::malformed());
     }
@@ -125,17 +125,21 @@ final class MatchId implements CivilRegistryInterface, DeclaresUsagePolicyInterf
         if (null === $period || (null === $period->from && null === $period->to)) {
             return null;
         }
-        if ($period->isDay()) {
+        if ($period->isDay() && null !== $period->from) {
             return sprintf('%02d/%02d/%04d', $period->from->day, $period->from->month, $period->from->year);
         }
-        $from = $period->from?->year ?? 1850;
-        $to = $period->to?->year ?? (int) date('Y');
+        $from = $period->from->year ?? 1850;
+        $to = $period->to->year ?? (int) date('Y');
 
         return $from === $to ? (string) $from : $from.'-'.$to;
     }
 
-    /** @return array<string, mixed> */
-    /** @param bool $find a lookup: a 404 is no such person (an empty answer) */
+    /**
+     * @param array<string, mixed> $query
+     * @param bool                 $find  a lookup: a 404 is no such person (an empty answer)
+     *
+     * @return array<mixed>
+     */
     private function ask(string $path, array $query = [], bool $find = false): array
     {
         $headers = ['Accept' => 'application/json'];
@@ -159,50 +163,55 @@ final class MatchId implements CivilRegistryInterface, DeclaresUsagePolicyInterf
             $answer = $response->toArray(false);
         } catch (ExceptionInterface $e) {
             // The token, in the request's headers, kept out: the previous a copy of the client's exception, no trace keeping the options.
-            $secrets = array_values(array_filter([(string) $this->token]));
+            $secrets = array_filter([(string) $this->token]);
 
             throw Redaction::withoutArguments(new UnavailableException('matchID did not answer: '.Redaction::text($e->getMessage(), $secrets), null, Redaction::copy($e, $secrets)));
         }
         if ($status >= 400) {
-            throw new OmnistateException(sprintf('matchID refused the question (%d): %s', $status, implode(' ', (array) ($answer['msg'] ?? ''))));
+            throw new OmnistateException(sprintf('matchID refused the question (%d): %s', $status, implode(' ', array_map(self::cast(...), (array) ($answer['msg'] ?? '')))));
         }
 
         return $answer;
     }
 
-    /** @param array<string, mixed> $person */
+    /** @param array<mixed> $person */
     private function record(array $person): CivilRecord
     {
+        $id = self::cast($person['id'] ?? null);
         $death = $person['death'] ?? [];
         $birth = $person['birth'] ?? [];
-        $deathDate = PartialDate::parse(self::string($death['date'] ?? null));
+        $deathDate = PartialDate::parse(self::string(self::at($death, 'date')));
+        $deathPlace = self::object(self::at($death, 'location'));
+        $first = self::at($person, 'name', 'first') ?? [];
+        $age = self::at($death, 'age');
+        $certificate = self::cast(self::at($death, 'certificateId'));
 
         return new CivilRecord(
-            identifier: (string) $person['id'],
+            identifier: $id,
             kind: CivilRecordKind::DEATH,
             source: $this->name(),
             date: $deathDate,
-            place: self::place(self::object($death['location'] ?? null)),
+            place: self::place($deathPlace),
             persons: [new CivilPerson(
-                familyName: (string) ($person['name']['last'] ?? ''),
-                givenNames: array_values(array_filter((array) ($person['name']['first'] ?? []), 'is_string')),
+                familyName: self::cast(self::at($person, 'name', 'last')),
+                givenNames: array_values(array_filter(\is_array($first) ? $first : [$first], 'is_string')),
                 sex: Sex::fromAny($person['sex'] ?? null),
                 role: 'Deceased',
-                birthDate: PartialDate::parse(self::string($birth['date'] ?? null)),
-                birthPlace: self::place(self::object($birth['location'] ?? null)),
+                birthDate: PartialDate::parse(self::string(self::at($birth, 'date'))),
+                birthPlace: self::place(self::object(self::at($birth, 'location'))),
                 deathDate: $deathDate,
-                deathPlace: self::place(self::object($death['location'] ?? null)),
-                age: isset($death['age']) && is_numeric($death['age']) ? (int) $death['age'] : null,
+                deathPlace: self::place($deathPlace),
+                age: is_numeric($age) ? (int) $age : null,
             )],
-            archive: new Archive('INSEE, fichier des personnes décédées', 'insee', isset($person['source']) ? trim(sprintf('fichier %s, ligne %s', $person['source'], $person['sourceLine'] ?? '')) : null, 'https://www.insee.fr/fr/information/4190491'),
-            url: self::PAGE.$person['id'],
+            archive: new Archive('INSEE, fichier des personnes décédées', 'insee', isset($person['source']) ? trim(sprintf('fichier %s, ligne %s', self::cast($person['source']), self::cast($person['sourceLine'] ?? ''))) : null, 'https://www.insee.fr/fr/information/4190491'),
+            url: self::PAGE.$id,
             title: 'Décès',
-            number: isset($death['certificateId']) && '' !== (string) $death['certificateId'] ? (string) $death['certificateId'] : null,
+            number: '' !== $certificate ? $certificate : null,
             raw: $person,
         );
     }
 
-    /** @param array<string, mixed>|null $location */
+    /** @param array<mixed>|null $location */
     private static function place(?array $location): ?Place
     {
         if (!$location) {
@@ -215,13 +224,13 @@ final class MatchId implements CivilRegistryInterface, DeclaresUsagePolicyInterf
 
         return new Place(
             name: \is_string($name) && '' !== $name ? $name : null,
-            code: isset($location['code']) ? (string) $location['code'] : null,
+            code: isset($location['code']) ? self::cast($location['code']) : null,
             postcode: self::string(\is_array($postcode) ? ($postcode[0] ?? null) : $postcode),
-            region: isset($location['departmentCode']) ? (string) $location['departmentCode'] : null,
+            region: isset($location['departmentCode']) ? self::cast($location['departmentCode']) : null,
             country: CountryCode::alpha2(self::string($location['countryCode'] ?? null)),
             countryName: self::string($location['country'] ?? null),
-            latitude: isset($location['latitude']) ? (float) $location['latitude'] : null,
-            longitude: isset($location['longitude']) ? (float) $location['longitude'] : null,
+            latitude: isset($location['latitude']) ? self::number($location['latitude']) : null,
+            longitude: isset($location['longitude']) ? self::number($location['longitude']) : null,
         );
     }
 
@@ -249,6 +258,35 @@ final class MatchId implements CivilRegistryInterface, DeclaresUsagePolicyInterf
     private static function object(mixed $value): ?array
     {
         return null === $value || \is_array($value) ? $value : throw self::malformed();
+    }
+
+    /**
+     * $value[$key][...] ?? null, as PHP reads it: an array's item, a string's
+     * character at an integer offset, null for anything else.
+     */
+    private static function at(mixed $value, string|int ...$keys): mixed
+    {
+        foreach ($keys as $key) {
+            if (\is_array($value) || (\is_string($value) && \is_int($key))) {
+                $value = $value[$key] ?? null;
+            } else {
+                return null;
+            }
+        }
+
+        return $value;
+    }
+
+    /** (string) of a scalar, as the answer's values were cast: "" for null, and for an array where PHP gave "Array". */
+    private static function cast(mixed $value): string
+    {
+        return \is_scalar($value) ? (string) $value : '';
+    }
+
+    /** (float) of a scalar, 0.0 for anything else (an array: where PHP gave 1.0 for a non-empty one). */
+    private static function number(mixed $value): float
+    {
+        return \is_scalar($value) ? (float) $value : 0.0;
     }
 
     /** The family's rule on a body that is not what it should be (docs/providers.md). */

@@ -28,12 +28,12 @@ final class MatchIdContractTest extends TestCase
         }), ['response_headers' => ['content-type' => 'application/json']])];
     }
 
-    protected function civilQuery(): ?CivilQuery
+    protected function civilQuery(): CivilQuery
     {
         return new CivilQuery(familyName: 'Chirac', givenName: 'Jacques', born: Period::year(1932));
     }
 
-    protected function civilIdentifier(): ?string
+    protected function civilIdentifier(): string
     {
         return 'fohpDS17K0Ez';
     }

@@ -24,7 +24,7 @@ final class MatchIdTest extends TestCase
         self::assertSame('matchid', $matchid->name());
         self::assertSame(['FR'], $matchid->countries());
         self::assertSame([CivilRecordKind::DEATH], $matchid->kinds());
-        self::assertSame(1970, $matchid->period()?->from?->year);
+        self::assertSame(1970, $matchid->period()->from?->year);
         self::assertFalse($matchid->hasImages());
 
         self::assertTrue($matchid->supports(new CivilQuery(familyName: 'Chirac')));
@@ -41,13 +41,15 @@ final class MatchIdTest extends TestCase
         $matchid = new MatchId(new MockHttpClient(function (string $method, string $url, array $options) use (&$asked) {
             $asked = [$method, $url, $options['headers']];
 
-            return new MockResponse(file_get_contents(__DIR__.'/Fixtures/search.json'));
+            return new MockResponse((string) file_get_contents(__DIR__.'/Fixtures/search.json'));
         }));
         $records = $matchid->search(new CivilQuery(familyName: 'Chirac', givenName: 'Jacques', born: Period::year(1932), limit: 2));
 
+        self::assertNotNull($asked);
         self::assertSame('GET', $asked[0]);
         self::assertSame('https://deces.matchid.io/deces/api/v1/search?lastName=Chirac&firstName=Jacques&birthDate=1932&size=2', $asked[1]);
-        self::assertNotContains('Authorization', array_map(static fn (string $h) => strtok($h, ':'), $asked[2]), 'no token, no header');
+        self::assertIsArray($asked[2]);
+        self::assertNotContains('Authorization', array_map(static fn (mixed $h) => \is_string($h) ? strtok($h, ':') : $h, $asked[2]), 'no token, no header');
 
         self::assertCount(1, $records);
         $record = $records[0];
@@ -55,23 +57,26 @@ final class MatchIdTest extends TestCase
         self::assertSame(CivilRecordKind::DEATH, $record->kind);
         self::assertSame('matchid', $record->source);
         self::assertSame('2019-09-26', (string) $record->date);
-        self::assertSame('Paris 6e Arrondissement', $record->place?->name, 'the most precise of the names given');
-        self::assertSame('75106', $record->place?->code);
-        self::assertSame('75006', $record->place?->postcode);
-        self::assertSame('75', $record->place?->region);
-        self::assertSame('FR', $record->place?->country, 'FRA');
+        self::assertNotNull($record->place);
+        self::assertSame('Paris 6e Arrondissement', $record->place->name, 'the most precise of the names given');
+        self::assertSame('75106', $record->place->code);
+        self::assertSame('75006', $record->place->postcode);
+        self::assertSame('75', $record->place->region);
+        self::assertSame('FR', $record->place->country, 'FRA');
         self::assertSame('129', $record->number);
         self::assertSame('https://deces.matchid.io/id/fohpDS17K0Ez', $record->url);
         self::assertSame([], $record->images);
         self::assertSame('fichier 2019, ligne 505032', $record->archive?->reference);
 
         $person = $record->principal();
-        self::assertSame('Jacques Rene Chirac', $person?->name());
-        self::assertSame(['Jacques', 'Rene'], $person?->givenNames);
-        self::assertSame(Sex::MALE, $person?->sex);
-        self::assertSame('1932-11-29', (string) $person?->birthDate);
-        self::assertSame('Paris 5e Arrondissement', $person?->birthPlace?->name);
-        self::assertSame(86, $person?->age);
+        self::assertNotNull($person);
+        self::assertSame('Jacques Rene Chirac', $person->name());
+        self::assertSame(['Jacques', 'Rene'], $person->givenNames);
+        self::assertSame(Sex::MALE, $person->sex);
+        self::assertSame('1932-11-29', (string) $person->birthDate);
+        self::assertSame('Paris 5e Arrondissement', $person->birthPlace?->name);
+        self::assertSame(86, $person->age);
+        self::assertIsArray($record->raw['links']);
         self::assertSame('http://www.wikidata.org/entity/Q2105', $record->raw['links']['wikidata']);
     }
 
@@ -81,7 +86,7 @@ final class MatchIdTest extends TestCase
         $matchid = new MatchId(new MockHttpClient(function (string $method, string $url) use (&$urls) {
             $urls[] = urldecode(substr($url, \strlen(MatchId::URL)));
 
-            return new MockResponse(file_get_contents(__DIR__.'/Fixtures/none.json'));
+            return new MockResponse((string) file_get_contents(__DIR__.'/Fixtures/none.json'));
         }), 'secret');
 
         self::assertSame([], $matchid->search(new CivilQuery(familyName: 'Chirac', born: Period::years(1930, 1935), died: Period::year(2019), place: 'Paris', sex: Sex::MALE, limit: 5, page: 2)));
@@ -99,16 +104,17 @@ final class MatchIdTest extends TestCase
         $matchid = new MatchId(new MockHttpClient(function (string $method, string $url, array $options) use (&$headers) {
             $headers = $options['headers'];
 
-            return new MockResponse(file_get_contents(__DIR__.'/Fixtures/id.json'));
+            return new MockResponse((string) file_get_contents(__DIR__.'/Fixtures/id.json'));
         }), 'secret');
 
         self::assertSame('Jacques Rene Chirac', $matchid->find('fohpDS17K0Ez')?->principal()?->name());
+        self::assertIsArray($headers);
         self::assertContains('Authorization: Bearer secret', $headers);
     }
 
     public function testAnIdentifierNobodyHas(): void
     {
-        $matchid = new MatchId(new MockHttpClient(new MockResponse(file_get_contents(__DIR__.'/Fixtures/none.json'))));
+        $matchid = new MatchId(new MockHttpClient(new MockResponse((string) file_get_contents(__DIR__.'/Fixtures/none.json'))));
 
         self::assertNull($matchid->find('AAAAAAAAAAAA'));
         self::assertNull($matchid->find('../etc'), 'not asked');

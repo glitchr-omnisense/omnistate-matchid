@@ -10,6 +10,9 @@
 - A 429 is thrown with `$status` 429: through the facade, the next calls wait for its `retryAfter`.
 - PHPStan at level max, its baseline what the package had on 2026-11-10.
 
+### Changed
+- PHPStan at level max with an empty baseline, types only.
+
 ### Fixed
 - An answer of another shape than matchID's API is an `UnavailableException` (the family's rule on
   a body that is not what it should be), where PHP threw a `TypeError`: `persons` not a list, a
