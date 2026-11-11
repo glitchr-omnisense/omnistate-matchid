@@ -11,6 +11,9 @@
 - PHPStan at level max, its baseline what the package had on 2026-11-10.
 
 ### Fixed
+- An answer of another shape than matchID's API is an `UnavailableException` (the family's rule on
+  a body that is not what it should be), where PHP threw a `TypeError`: `persons` not a list, a
+  person not an object, a location not an object, a date, postcode or country given as a list.
 - An unreachable matchID no longer carries the token: the `UnavailableException` wrapped the HTTP
   client's own exception, whose trace kept the request's headers in its arguments
   (`zend.exception_ignore_args` off). The previous is now a copy of it (the same class and code, the

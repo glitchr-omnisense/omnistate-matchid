@@ -127,6 +127,28 @@ final class MatchIdTest extends TestCase
         (new MatchId(new MockHttpClient(new MockResponse('', ['error' => 'Could not resolve host']))))->find('fohpDS17K0Ez');
     }
 
+    public function testAnAnswerOfAnotherShapeIsUnavailable(): void
+    {
+        foreach ([
+            '{"response":{"persons":"none"}}',
+            '{"response":{"persons":["none"]}}',
+            '{"response":{"persons":[{"id":"x","death":{"location":"Paris"}}]}}',
+            '{"response":{"persons":[{"id":"x","birth":{"date":["1932"]}}]}}',
+            '{"response":{"persons":[{"id":"x","death":{"location":{"codePostal":[["75006"]]}}}]}}',
+            '{"response":{"persons":[{"id":"x","death":{"location":{"countryCode":["FRA"]}}}]}}',
+        ] as $body) {
+            foreach (['search', 'find'] as $call) {
+                $matchid = new MatchId(new MockHttpClient(new MockResponse($body)));
+                try {
+                    'search' === $call ? $matchid->search(new CivilQuery(familyName: 'Chirac')) : $matchid->find('fohpDS17K0Ez');
+                    self::fail($call.' unavailable: '.$body);
+                } catch (UnavailableException $e) {
+                    self::assertSame('matchID answered in another shape than its API\'s.', $e->getMessage());
+                }
+            }
+        }
+    }
+
     public function testAQuestionItRefuses(): void
     {
         $this->expectException(OmnistateException::class);

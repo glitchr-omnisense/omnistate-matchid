@@ -101,7 +101,12 @@ final class MatchId implements CivilRegistryInterface, DeclaresUsagePolicyInterf
             'page' => $query->page > 1 ? $query->page : null,
         ], static fn (mixed $value) => null !== $value && '' !== $value));
 
-        return array_map($this->record(...), $answer['response']['persons'] ?? []);
+        $persons = $answer['response']['persons'] ?? [];
+        if (!\is_array($persons)) {
+            throw self::malformed();
+        }
+
+        return array_map(fn (mixed $person) => $this->record(\is_array($person) ? $person : throw self::malformed()), $persons);
     }
 
     public function find(string $identifier): ?CivilRecord
@@ -111,7 +116,7 @@ final class MatchId implements CivilRegistryInterface, DeclaresUsagePolicyInterf
         }
         $person = $this->ask('/id/'.$identifier, [], true)['response']['persons'][0] ?? null;
 
-        return null === $person ? null : $this->record($person);
+        return null === $person ? null : $this->record(\is_array($person) ? $person : throw self::malformed());
     }
 
     /** "1932", "1930-1935", "29/11/1932": the three ways matchID reads a date. */
@@ -170,23 +175,23 @@ final class MatchId implements CivilRegistryInterface, DeclaresUsagePolicyInterf
     {
         $death = $person['death'] ?? [];
         $birth = $person['birth'] ?? [];
-        $deathDate = PartialDate::parse($death['date'] ?? null);
+        $deathDate = PartialDate::parse(self::string($death['date'] ?? null));
 
         return new CivilRecord(
             identifier: (string) $person['id'],
             kind: CivilRecordKind::DEATH,
             source: $this->name(),
             date: $deathDate,
-            place: self::place($death['location'] ?? null),
+            place: self::place(self::object($death['location'] ?? null)),
             persons: [new CivilPerson(
                 familyName: (string) ($person['name']['last'] ?? ''),
                 givenNames: array_values(array_filter((array) ($person['name']['first'] ?? []), 'is_string')),
                 sex: Sex::fromAny($person['sex'] ?? null),
                 role: 'Deceased',
-                birthDate: PartialDate::parse($birth['date'] ?? null),
-                birthPlace: self::place($birth['location'] ?? null),
+                birthDate: PartialDate::parse(self::string($birth['date'] ?? null)),
+                birthPlace: self::place(self::object($birth['location'] ?? null)),
                 deathDate: $deathDate,
-                deathPlace: self::place($death['location'] ?? null),
+                deathPlace: self::place(self::object($death['location'] ?? null)),
                 age: isset($death['age']) && is_numeric($death['age']) ? (int) $death['age'] : null,
             )],
             archive: new Archive('INSEE, fichier des personnes décédées', 'insee', isset($person['source']) ? trim(sprintf('fichier %s, ligne %s', $person['source'], $person['sourceLine'] ?? '')) : null, 'https://www.insee.fr/fr/information/4190491'),
@@ -211,12 +216,44 @@ final class MatchId implements CivilRegistryInterface, DeclaresUsagePolicyInterf
         return new Place(
             name: \is_string($name) && '' !== $name ? $name : null,
             code: isset($location['code']) ? (string) $location['code'] : null,
-            postcode: \is_array($postcode) ? ($postcode[0] ?? null) : $postcode,
+            postcode: self::string(\is_array($postcode) ? ($postcode[0] ?? null) : $postcode),
             region: isset($location['departmentCode']) ? (string) $location['departmentCode'] : null,
-            country: CountryCode::alpha2($location['countryCode'] ?? null),
-            countryName: $location['country'] ?? null,
+            country: CountryCode::alpha2(self::string($location['countryCode'] ?? null)),
+            countryName: self::string($location['country'] ?? null),
             latitude: isset($location['latitude']) ? (float) $location['latitude'] : null,
             longitude: isset($location['longitude']) ? (float) $location['longitude'] : null,
         );
+    }
+
+    /**
+     * A value handed to a ?string parameter, as PHP coerced it: a scalar as
+     * its string, null kept; an array where a text belongs is an answer of
+     * another shape.
+     */
+    private static function string(mixed $value): ?string
+    {
+        return match (true) {
+            null === $value, \is_string($value) => $value,
+            \is_int($value), \is_float($value) => (string) $value,
+            \is_bool($value) => $value ? '1' : '',
+            default => throw self::malformed(),
+        };
+    }
+
+    /**
+     * A location, as PHP handed it to an ?array parameter: null when absent;
+     * anything else where an object belongs is an answer of another shape.
+     *
+     * @return array<mixed>|null
+     */
+    private static function object(mixed $value): ?array
+    {
+        return null === $value || \is_array($value) ? $value : throw self::malformed();
+    }
+
+    /** The family's rule on a body that is not what it should be (docs/providers.md). */
+    private static function malformed(): UnavailableException
+    {
+        return new UnavailableException('matchID answered in another shape than its API\'s.');
     }
 }
