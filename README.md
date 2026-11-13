@@ -25,6 +25,14 @@ plain PHP, a `MockHttpClient` in a test.
 | Picture of the act | no: the file is an index; the act is at the town hall of the place of death |
 | Access | free, no key |
 
+## Install
+
+```sh
+composer require omnistate/matchid
+```
+
+It brings the family's core, `omnisense/omnistate`, and `omnisense/contracts` with it. No account and no key for a first call; a matchID token raises the quota ([`policy.json`](policy.json)).
+
 ## Responsibility
 
 This package is an independent, unofficial client: it is not affiliated with, endorsed by or
